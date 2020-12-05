@@ -22,18 +22,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .connect_timeout(Duration::from_secs(CONNECTION_TIMEOUT_SECONDS))
         .build()?;
 
-    let request = Request::builder()
-        .method("GET")
-        .uri(&format!(
-            "{}?gameId=1&sort={}&pageSize={}",
-            CURSE_SEARCH_URL,
-            CurseSort::Popularity as u8,
-            500
-        ))
-        .body(())
-        .unwrap();
-
-    let packages: Vec<curse::Package> = client.send_async(request).await?.json()?;
+    let packages = search_packages(&client, CurseSort::Popularity, 500).await?;
 
     println!("{} packages to audit against", packages.len());
 
@@ -115,6 +104,23 @@ async fn main() -> Result<(), anyhow::Error> {
     );
 
     Ok(())
+}
+
+async fn search_packages(
+    client: &HttpClient,
+    sort_type: CurseSort,
+    num_results: usize,
+) -> Result<Vec<curse::Package>, anyhow::Error> {
+    let request = Request::builder()
+        .method("GET")
+        .uri(&format!(
+            "{}?gameId=1&sort={}&pageSize={}",
+            CURSE_SEARCH_URL, sort_type as u8, num_results,
+        ))
+        .body(())
+        .unwrap();
+
+    Ok(client.send_async(request).await?.json()?)
 }
 
 async fn get_fingerprint_respose(
