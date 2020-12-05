@@ -47,39 +47,45 @@ async fn main() -> Result<(), anyhow::Error> {
         .map(|batch| batch.iter().flatten().cloned().collect::<HashSet<_>>())
         .collect::<Vec<_>>();
 
-    let curse_exact_matches = future::join_all(
+    let curse_batches = future::join_all(
         batches
             .iter()
             .map(|fingerprints| get_fingerprint_respose(&client, ApiChoice::Curse, fingerprints)),
-    )
-    .await
-    .into_iter()
-    .filter_map(|result| match result {
-        Ok(info) => Some(info),
-        Err(e) => {
-            eprintln!("ERROR: {}", e);
-            None
-        }
-    })
-    .map(|i| i.exact_matches)
-    .flatten();
+    );
 
-    let wowup_exact_matches = future::join_all(
+    let wowup_batches = future::join_all(
         batches
             .iter()
             .map(|fingerprints| get_fingerprint_respose(&client, ApiChoice::WowUp, fingerprints)),
-    )
-    .await
-    .into_iter()
-    .filter_map(|result| match result {
-        Ok(info) => Some(info),
-        Err(e) => {
-            eprintln!("ERROR: {}", e);
-            None
-        }
-    })
-    .map(|i| i.exact_matches)
-    .flatten();
+    );
+
+    let mut responses = future::join_all(vec![curse_batches, wowup_batches]).await;
+
+    let curse_exact_matches = responses
+        .remove(0)
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(info) => Some(info),
+            Err(e) => {
+                eprintln!("ERROR: {}", e);
+                None
+            }
+        })
+        .map(|i| i.exact_matches)
+        .flatten();
+
+    let wowup_exact_matches = responses
+        .remove(0)
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(info) => Some(info),
+            Err(e) => {
+                eprintln!("ERROR: {}", e);
+                None
+            }
+        })
+        .map(|i| i.exact_matches)
+        .flatten();
 
     println!(
         "{} exact fingerprint matches from Curse",
