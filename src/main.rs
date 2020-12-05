@@ -1,9 +1,11 @@
 use ajour_core::repository::curse;
+use anyhow::bail;
 use futures::future;
 use isahc::prelude::*;
 use serde::Serialize;
 
 use std::collections::HashSet;
+use std::fmt::{self, Display};
 use std::time::Duration;
 
 const CURSE_SEARCH_URL: &str = "https://addons-ecs.forgesvc.net/api/v2/addon/search";
@@ -33,7 +35,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let packages: Vec<curse::Package> = client.send_async(request).await?.json()?;
 
-    println!("{} packages fetched", packages.len());
+    println!("{} packages to audit against", packages.len());
 
     let package_fingerprints = packages
         .iter()
@@ -68,36 +70,48 @@ async fn main() -> Result<(), anyhow::Error> {
     let curse_exact_matches = responses
         .remove(0)
         .into_iter()
-        .filter_map(|result| match result {
-            Ok(info) => Some(info),
-            Err(e) => {
-                eprintln!("ERROR: {}", e);
-                None
-            }
-        })
+        .filter_map(Result::ok)
         .map(|i| i.exact_matches)
-        .flatten();
+        .flatten()
+        .collect::<Vec<_>>();
 
     let wowup_exact_matches = responses
         .remove(0)
         .into_iter()
-        .filter_map(|result| match result {
-            Ok(info) => Some(info),
-            Err(e) => {
-                eprintln!("ERROR: {}", e);
-                None
-            }
-        })
+        .filter_map(Result::ok)
         .map(|i| i.exact_matches)
-        .flatten();
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let unique_package_ids = [&curse_exact_matches[..], &wowup_exact_matches[..]]
+        .concat()
+        .into_iter()
+        .map(|i| i.id)
+        .collect::<HashSet<_>>();
+
+    let curse_package_ids = curse_exact_matches
+        .iter()
+        .map(|i| i.id)
+        .collect::<HashSet<_>>();
+    let wowup_package_ids = wowup_exact_matches
+        .iter()
+        .map(|i| i.id)
+        .collect::<HashSet<_>>();
 
     println!(
-        "{} exact fingerprint matches from Curse",
-        curse_exact_matches.count()
+        "{} unique packages between both APIs",
+        unique_package_ids.len(),
+    );
+
+    println!(
+        "{} packages from Curse with {} fingerprint matches",
+        curse_package_ids.len(),
+        curse_exact_matches.len()
     );
     println!(
-        "{} exact fingerprint matches from WowUp",
-        wowup_exact_matches.count()
+        "{} packages from WowUp with {} fingerprint matches",
+        wowup_package_ids.len(),
+        wowup_exact_matches.len()
     );
 
     Ok(())
@@ -121,7 +135,25 @@ async fn get_fingerprint_respose(
         .header("content-type", "application/json")
         .body(body)?;
 
-    Ok(client.send_async(request).await?.json()?)
+    let response = client.send_async(request).await;
+
+    match response {
+        Ok(mut body) => match body.json() {
+            Ok(info) => Ok(info),
+            Err(e) => {
+                eprintln!(
+                    "ERROR: {} - failed to deserialize fingerprint request, got body: {}",
+                    api_choice,
+                    body.text_async().await?
+                );
+                bail!(e);
+            }
+        },
+        Err(e) => {
+            eprintln!("ERROR: {} - request failed: {}", api_choice, e);
+            bail!(e);
+        }
+    }
 }
 
 enum ApiChoice {
@@ -130,11 +162,24 @@ enum ApiChoice {
 }
 
 impl ApiChoice {
-    const fn fingerprint_url(self) -> &'static str {
+    const fn fingerprint_url(&self) -> &'static str {
         match self {
             ApiChoice::Curse => CURSE_FINGERPRINT_URL,
             ApiChoice::WowUp => WOWUP_FINGERPRINT_URL,
         }
+    }
+}
+
+impl Display for ApiChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ApiChoice::Curse => "curse_api",
+                ApiChoice::WowUp => "wowup_api",
+            }
+        )
     }
 }
 
