@@ -7,13 +7,17 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 const CURSE_SEARCH_URL: &str = "https://addons-ecs.forgesvc.net/api/v2/addon/search";
+const CURSE_FINGERPRINT_URL: &str = "https://addons-ecs.forgesvc.net/api/v2/fingerprint";
+const WOWUP_FINGERPRINT_URL: &str = "https://hub.wowup.io/curseforge/addons/fingerprint";
 const BATCH_SIZE: usize = 25;
+const MAX_HOST_CONNECTIONS: usize = 3;
+const CONNECTION_TIMEOUT_SECONDS: u64 = 30;
 
 #[async_std::main]
 async fn main() -> Result<(), anyhow::Error> {
     let client = HttpClient::builder()
-        .max_connections_per_host(3)
-        .connect_timeout(Duration::from_secs(30))
+        .max_connections_per_host(MAX_HOST_CONNECTIONS)
+        .connect_timeout(Duration::from_secs(CONNECTION_TIMEOUT_SECONDS))
         .build()?;
 
     let request = Request::builder()
@@ -128,8 +132,8 @@ enum ApiChoice {
 impl ApiChoice {
     const fn fingerprint_url(self) -> &'static str {
         match self {
-            ApiChoice::Curse => "https://addons-ecs.forgesvc.net/api/v2/fingerprint",
-            ApiChoice::WowUp => "https://hub.wowup.io/curseforge/addons/fingerprint",
+            ApiChoice::Curse => CURSE_FINGERPRINT_URL,
+            ApiChoice::WowUp => WOWUP_FINGERPRINT_URL,
         }
     }
 }
